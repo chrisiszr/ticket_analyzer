@@ -45,7 +45,8 @@ class BALAnalyzer:
                 if col in self.df.columns:
                     # Convert only non-NA values to datetime
                     mask = self.df[col] != 'NA'
-                    self.df.loc[mask, col] = pd.to_datetime(self.df.loc[mask, col], errors='coerce')
+                    if mask.any():
+                        self.df.loc[mask, col] = pd.to_datetime(self.df.loc[mask, col], errors='coerce')
             
         except FileNotFoundError:
             print(f"Error: File {self.csv_file} not found")
@@ -103,8 +104,14 @@ class BALAnalyzer:
             # Calculate duration only for completed approvals (not NA, not NOT NEEDED)
             mask = (self.df[col] != 'NA') & (self.df[col] != 'NOT NEEDED') & (self.df[col].notna())
             if mask.sum() > 0:
-                duration = self.df.loc[mask, col] - self.df.loc[mask, start_col]
-                durations[step_name] = duration
+                # Ensure both columns are datetime before calculation
+                col_data = self.df.loc[mask, col]
+                start_data = self.df.loc[mask, start_col]
+                if pd.api.types.is_datetime64_any_dtype(col_data) and pd.api.types.is_datetime64_any_dtype(start_data):
+                    duration = col_data - start_data
+                    durations[step_name] = duration
+                else:
+                    durations[step_name] = pd.Series(dtype='timedelta64[ns]')
             else:
                 durations[step_name] = pd.Series(dtype='timedelta64[ns]')
         
@@ -225,8 +232,13 @@ class BALAnalyzer:
             return
         
         total_time = self.df.loc[mask, 'Closed Date'] - self.df.loc[mask, 'Opened Date']
-        days = total_time.dt.total_seconds() / 86400
-        hours = total_time.dt.total_seconds() / 3600
+        # Ensure we have datetime values before using .dt accessor
+        if pd.api.types.is_timedelta64_dtype(total_time):
+            days = total_time.dt.total_seconds() / 86400
+            hours = total_time.dt.total_seconds() / 3600
+        else:
+            print("No valid datetime calculations possible")
+            return
         
         print(f"Total tickets with valid dates: {len(days)}")
         print(f"Mean processing time: {days.mean():.2f} days ({hours.mean():.2f} hours)")
